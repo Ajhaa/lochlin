@@ -5,10 +5,24 @@ import java.io.PrintWriter
 fun main(args : Array<String>) {
     var outputDir = args[0]
     defineAst(outputDir, "Expr",
+                "Assign - name : Token, value : Expr",
               "Binary   - left : Expr, operator : Token, right : Expr",
+              "Call     - callee : Expr, paren : Token, arguments : List<Expr>",
               "Grouping - expression : Expr",
               "Literal  - value : Any?",
-              "Unary    - operator : Token, right : Expr")
+              "Logical  - left : Expr, operator : Token, right : Expr",
+              "Unary    - operator : Token, right : Expr",
+              "Variable - name : Token")
+
+    defineAst(outputDir, "Stmt",
+            "Block - statements : List<Stmt>",
+             "Expression - expression : Expr",
+             "Function   - name : Token, params : List<Token>, body : List<Stmt>",
+             "If         - condition : Expr, thenBranch : Stmt?, elseBranch : Stmt?",
+             "Return     - keyword : Token, value : Expr?",
+             "Print      - expression : Expr",
+             "Var        - name : Token, initializer : Expr?",
+             "While      - condition : Expr, body : Stmt?")
 }
 
 fun defineAst(outputDir : String, baseName : String, vararg types : String) {
@@ -20,6 +34,7 @@ fun defineAst(outputDir : String, baseName : String, vararg types : String) {
     writer.println("abstract class $baseName {")
 
     defineVisitor(writer, baseName, types)
+    writer.println()
 
     for (type in types) {
         val className = type.split("-")[0].trim()

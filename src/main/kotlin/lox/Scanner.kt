@@ -25,7 +25,7 @@ class Scanner(private val source : String) {
 
     private fun scanToken() {
 
-        var c = advance()
+        val c = advance()
         when (c) {
             '(' -> addToken(LEFT_PAREN)
             ')' -> addToken(RIGHT_PAREN)
@@ -37,6 +37,7 @@ class Scanner(private val source : String) {
             '+' -> addToken(PLUS)
             ';' -> addToken(SEMICOLON)
             '*' -> addToken(STAR)
+            //'%' -> addToken(PERCENT)
             '!' -> addToken(if (match('=')) BANG_EQUAL else BANG)
             '=' -> addToken(if (match('=')) EQUAL_EQUAL else EQUAL)
             '<' -> addToken(if (match('=')) LESS_EQUAL else LESS)

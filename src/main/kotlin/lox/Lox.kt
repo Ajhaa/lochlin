@@ -46,11 +46,11 @@ class Lox {
             var scanner = Scanner(source)
             var tokens = scanner.scanTokens()
             val parser = Parser(tokens)
-            val expression = parser.parse()
+            val statemets = parser.parse()
 
             if (hadError) return
 
-            interpreter.interpret(expression)
+            interpreter.interpret(statemets)
 
         }
 

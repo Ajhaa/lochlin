@@ -1,11 +1,8 @@
 package lox
 
+import jdk.nashorn.internal.objects.NativeFunction.function
 import lox.TokenType.*;
 import java.time.temporal.TemporalAdjusters.previous
-import java.time.temporal.TemporalAdjusters.previous
-
-
-
 
 
 class Parser(private val tokens : List<Token>) {
@@ -13,16 +10,210 @@ class Parser(private val tokens : List<Token>) {
 
     private var current = 0
 
-    fun parse() : Expr? {
+    fun parse() : List<Stmt> {
+        val statements = ArrayList<Stmt>()
+        while (!isAtEnd()) {
+            val stmt = declaration()
+            if (stmt != null) statements.add(stmt)
+        }
+
+        return statements
+    }
+
+    private fun expression() : Expr {
+        return assignment()
+    }
+
+    private fun declaration() : Stmt? {
         try {
-            return expression()
+            if (match(VAR)) return varDeclaration()
+            if (match(FUN)) return function("function")
+
+            return statement()
         } catch (error : ParseError) {
+            synchronize()
             return null
         }
     }
 
-    private fun expression() : Expr {
-        return equality()
+    private fun statement() : Stmt {
+        if (match(FOR)) return forStatement()
+        if (match(IF)) return ifStatement()
+        if (match(PRINT)) return printStatement()
+        if (match(RETURN)) return returnStatement()
+        if (match(WHILE)) return whileStatement()
+        if (match(LEFT_BRACE)) return Stmt.Block(block())
+
+        return expressionStatement()
+    }
+
+    private fun forStatement() : Stmt {
+        consume(LEFT_PAREN, "Expect '(' after 'for")
+
+        val initializer = when(true) {
+            match(SEMICOLON) -> null
+            match(VAR) -> varDeclaration()
+            else -> expressionStatement()
+        }
+
+        var condition = if (!check(SEMICOLON)) expression() else null
+
+        consume(SEMICOLON, "Expect ';' after loop condition")
+
+        val increment = if (!check(RIGHT_PAREN)) expression() else null
+
+        consume(RIGHT_PAREN, "Expect ')' after for clauses")
+
+        var body = statement()
+        if (increment != null) {
+            body = Stmt.Block(listOf(body, Stmt.Expression(increment)))
+        }
+
+        if (condition == null) condition = Expr.Literal(true)
+        body = Stmt.While(condition, body)
+
+        if (initializer != null) {
+            body = Stmt.Block(listOf(initializer, body))
+        }
+
+        return body
+    }
+
+    private fun ifStatement() : Stmt {
+        consume(LEFT_PAREN, "Expect '(' after if")
+        val condition = expression()
+        consume(RIGHT_PAREN, "Expect ')' after if condition")
+
+        val thenBranch = statement()
+        var elseBranch : Stmt? = null
+        if (match(ELSE)) {
+            elseBranch = statement()
+        }
+
+        return Stmt.If(condition, thenBranch, elseBranch)
+    }
+
+    private fun printStatement() : Stmt {
+        val value = expression()
+        consume(SEMICOLON, "Expect ';' after value")
+        return Stmt.Print(value)
+    }
+
+    private fun returnStatement() : Stmt {
+        val keyword = previous()
+        var value : Expr? = null
+        if (!check(SEMICOLON)) {
+            value = expression()
+        }
+
+        consume(SEMICOLON, "Expect ';' after return value.");
+        return Stmt.Return(keyword, value)
+    }
+
+    private fun varDeclaration() : Stmt {
+        val name = consume(IDENTIFIER, "Expect variable name.")
+
+        var initializer : Expr? = null
+
+        if (match(EQUAL)) {
+            initializer = expression()
+        }
+
+        consume(SEMICOLON, "Expect ';' after variable declaration")
+        return Stmt.Var(name, initializer)
+    }
+
+    private fun whileStatement() : Stmt {
+        consume(LEFT_PAREN, "Expect '(' after 'while'")
+        val condition = expression()
+        consume(RIGHT_PAREN, "Expect ')' after condition")
+
+        val body = statement()
+
+        return Stmt.While(condition, body)
+    }
+
+    private fun expressionStatement() : Stmt {
+        val expr = expression()
+        consume(SEMICOLON, "Expect ';' after value")
+        return Stmt.Expression(expr)
+    }
+
+    private fun function(kind : String) : Stmt {
+        val name = consume(IDENTIFIER, "Expect $kind name")
+        consume(LEFT_PAREN, "Expect '(' after $kind name")
+
+        val parameters = ArrayList<Token>()
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (parameters.size >= 8) {
+                    error(peek(), "Cannot have more than 8 parameters.");
+                }
+
+                parameters.add(consume(IDENTIFIER, "Expect parameter name."));
+            } while (match(COMMA));
+        }
+
+        consume(RIGHT_PAREN, "Expect ') after parameters")
+
+        consume(LEFT_BRACE, "Expect '{' before $kind body")
+
+        val body = block()
+        return Stmt.Function(name, parameters, body)
+    }
+
+    private fun block() : List<Stmt> {
+        val statements = ArrayList<Stmt>()
+
+        while(!check(RIGHT_BRACE) && !isAtEnd()) {
+            val stmt = declaration()
+            stmt?.let { statements.add(stmt) }
+        }
+
+        consume(RIGHT_BRACE, "Expect '}' after block.")
+        return statements
+    }
+
+    private fun assignment() : Expr {
+        val expr = or()
+
+        if (match(EQUAL)) {
+            val equals = previous()
+            val value = assignment()
+
+            if (expr is Expr.Variable) {
+                val name = expr.name
+                return Expr.Assign(name, value)
+            }
+
+            error(equals, "Invalid assignment target")
+        }
+
+        return expr
+    }
+
+    private fun or() : Expr {
+        var expr = and()
+
+        while(match(OR)) {
+            val operator = previous()
+            val right = and()
+            expr = Expr.Logical(expr, operator, right)
+        }
+
+        return expr
+    }
+
+    private fun and() : Expr {
+        var expr = equality()
+
+        while(match(AND)) {
+            val operator = previous()
+            val right = equality()
+            expr = Expr.Logical(expr, operator, right)
+        }
+
+        return expr
     }
 
     private fun equality() : Expr {
@@ -80,7 +271,38 @@ class Parser(private val tokens : List<Token>) {
             return Expr.Unary(operator, right)
         }
 
-        return primary()
+        return call()
+    }
+
+    private fun finishCall(callee : Expr) : Expr {
+        var arguments = ArrayList<Expr>()
+
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (arguments.size >= 8) {
+                    error(peek(), "Cannot have more than 8 arguments")
+                }
+                arguments.add(expression())
+            } while (match(COMMA))
+        }
+
+        val paren = consume(RIGHT_PAREN, "Expect ')' after arguments")
+
+        return Expr.Call(callee, paren, arguments)
+    }
+
+    private fun call() : Expr {
+        var expr = primary()
+
+        while (true) {
+            if (match(LEFT_PAREN)) {
+                expr = finishCall(expr)
+            } else {
+                break
+            }
+        }
+
+        return expr
     }
 
     private fun primary() : Expr {
@@ -90,6 +312,10 @@ class Parser(private val tokens : List<Token>) {
 
         if (match(NUMBER, STRING)) {
             return Expr.Literal(previous().literal)
+        }
+
+        if (match(IDENTIFIER)) {
+            return Expr.Variable(previous())
         }
 
         if (match(LEFT_PAREN)) {
