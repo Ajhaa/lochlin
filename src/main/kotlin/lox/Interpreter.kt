@@ -5,6 +5,7 @@ import lox.TokenType.*
 class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
     val globals = lox.globals()
     private var environment = globals
+    private val locals = HashMap<Expr, Int?>()
 
     fun interpret(statements : List<Stmt>) {
         try {
@@ -64,6 +65,10 @@ class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
             EQUAL_EQUAL -> {
                 return isEqual(left, right)
             }
+            PERCENT -> {
+                checkNumberOperands(expr.operator, left, right)
+                return left as Double % right as Double
+            }
             MINUS -> {
                 checkNumberOperands(expr.operator, left, right)
                 return left as Double - right as Double
@@ -92,6 +97,32 @@ class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
         }
     }
 
+    override fun visitAssignExpr(expr: Expr.Assign): Any? {
+        val value = evaluate(expr.value)
+
+        val distance = locals.get(expr)
+        if (distance != null) {
+            environment.assignAt(distance, expr.name, value)
+        } else {
+            globals.assign(expr.name, value)
+        }
+        return value
+    }
+
+    override fun visitVariableExpr(expr: Expr.Variable): Any? {
+        return lookUpVariable(expr.name, expr)
+    }
+
+    private fun lookUpVariable(name: Token, expr: Expr) : Any? {
+        val distance = locals.get(expr)
+
+        if (distance != null) {
+            return environment.getAt(distance, name.lexeme)
+        } else {
+            return globals.get(name)
+        }
+    }
+
     override fun visitCallExpr(expr: Expr.Call): Any? {
         val callee = evaluate(expr.callee)
 
@@ -111,8 +142,17 @@ class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
         return callee.call(this, arguments)
     }
 
+    override fun visitGetExpr(expr: Expr.Get): Any? {
+        val obj = evaluate(expr.obj)
+        if (obj is LoxInstance) {
+            return obj.get(expr.name)
+        }
+
+        throw RuntimeError(expr.name, "Only instances have properties")
+    }
+
     override fun visitFunctionStmt(stmt: Stmt.Function) {
-        val function = LoxFunction(stmt)
+        val function = LoxFunction(stmt, environment, false)
         environment.define(stmt.name.lexeme, function)
     }
 
@@ -160,20 +200,6 @@ class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
         stmt.accept(this)
     }
 
-    fun executeBlock(statements : List<Stmt>, environment: Environment) {
-        val previous = this.environment
-
-        try {
-            this.environment = environment
-
-            for (stmt in statements) {
-                execute(stmt)
-            }
-        } finally {
-            this.environment = previous
-        }
-    }
-
     override fun visitLogicalExpr(expr: Expr.Logical): Any? {
         val left = evaluate(expr.left)
 
@@ -186,8 +212,36 @@ class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
         return evaluate(expr.right)
     }
 
+    override fun visitSetExpr(expr: Expr.Set): Any? {
+        val obj = evaluate(expr.obj)
+        if (obj !is LoxInstance) {
+            throw RuntimeError(expr.name, "Only instances have fields")
+        }
+
+        val value = evaluate(expr.value)
+        obj.set(expr.name, value)
+        return value
+    }
+
+    override fun visitThisExpr(expr: Expr.This): Any? {
+        return lookUpVariable(expr.keyword, expr)
+    }
+
     override fun visitBlockStmt(stmt: Stmt.Block) {
         executeBlock(stmt.statements, Environment(environment))
+    }
+
+    override fun visitClassStmt(stmt: Stmt.Class) {
+        environment.define(stmt.name.lexeme, null)
+
+        val methods = HashMap<String, LoxFunction>()
+        for (method in stmt.methods) {
+            val function = LoxFunction(method, environment, method.name.lexeme == "init")
+            methods.put(method.name.lexeme, function)
+        }
+
+        val klass = LoxClass(stmt.name.lexeme, methods)
+        environment.assign(stmt.name, klass)
     }
 
     override fun visitExpressionStmt(stmt: Stmt.Expression) {
@@ -223,17 +277,6 @@ class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
         }
     }
 
-    override fun visitAssignExpr(expr: Expr.Assign): Any? {
-        val value = evaluate(expr.value)
-
-        environment.assign(expr.name, value)
-        return value
-    }
-
-    override fun visitVariableExpr(expr: Expr.Variable): Any? {
-        return environment.get(expr.name)
-    }
-
     private fun checkNumberOperand(operator : Token, operand : Any?) {
         if (operand is Double) return;
         throw RuntimeError(operator, "Operand must be a number.")
@@ -245,5 +288,23 @@ class Interpreter() : Expr.Visitor<Any?>, Stmt.Visitor<Unit> {
         if (left is Double && right is Double) return
 
         throw RuntimeError(operator, "Operands must be numbers.")
+    }
+
+    fun resolve(expr: Expr, depth: Int) {
+        locals[expr] = depth
+    }
+
+    fun executeBlock(statements : List<Stmt>, environment: Environment) {
+        val previous = this.environment
+
+        try {
+            this.environment = environment
+
+            for (stmt in statements) {
+                execute(stmt)
+            }
+        } finally {
+            this.environment = previous
+        }
     }
 }

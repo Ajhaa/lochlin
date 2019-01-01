@@ -1,11 +1,25 @@
-fun fibonacci(n) {
-  if (n <= 1) return n;
-  return fibonacci(n - 2) + fibonacci(n - 1);
+class Builder {
+    init() {
+        this.built = "";
+    }
+
+    concat(s) {
+        this.built = this.built + s;
+        return this;
+    }
+
+    prepend(s) {
+        this.built = s + this.built;
+        return this;
+    }
+
+    build() {
+        return this.built;
+    }
 }
 
-var before = clock();
-for (var i = 0; i < 20; i = i + 1) {
-  print fibonacci(i);
-}
+var builder = Builder();
 
-print clock() - before;
+var builtString = builder.concat("World").prepend("Hello ").build();
+
+print builtString;

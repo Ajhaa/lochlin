@@ -1,4 +1,4 @@
-package lox
+/*package lox
 
 class AstPrinter : Expr.Visitor<String> {
     fun print(expr : Expr?) : String {
@@ -37,6 +37,10 @@ class AstPrinter : Expr.Visitor<String> {
         TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 
+    override fun visitGetExpr(expr: Expr.Get): String {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
     fun parenthesize(name : String, vararg exprs : Expr) : String {
         var builder = StringBuilder()
 
@@ -51,4 +55,4 @@ class AstPrinter : Expr.Visitor<String> {
 
         return builder.toString()
     }
-}
+} */
